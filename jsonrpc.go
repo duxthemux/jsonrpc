@@ -61,9 +61,11 @@ func handleCall(handler any, method reflect.Method) http.HandlerFunc {
 
 		inParamIface := inParam.Interface()
 
-		if err := json.NewDecoder(req.Body).Decode(inParamIface); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+		if req.Method == http.MethodPost || req.Method == http.MethodPut || req.Method != http.MethodPatch {
+			if err := json.NewDecoder(req.Body).Decode(inParamIface); err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 
 		inParam = reflect.ValueOf(inParamIface)
