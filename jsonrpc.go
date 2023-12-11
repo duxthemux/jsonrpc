@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,14 +12,17 @@ import (
 	"strings"
 )
 
+var ErrEndOfChain = fmt.Errorf("end of chain")
+
 type Namer interface {
 	Name() string
 }
 
 type Server struct {
-	endpoints map[string]any
-	router    *http.ServeMux
-	routes    []string
+	endpoints   map[string]any
+	router      *http.ServeMux
+	routes      []string
+	middlewares []func(ctx context.Context, in any, out any) error
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -47,7 +51,7 @@ func HttpResponseWriter(ctx context.Context) http.ResponseWriter {
 
 // ----------------------------------------------------------------------------
 
-func handleCall(handler any, method reflect.Method) http.HandlerFunc {
+func handleCall(s *Server, handler any, method reflect.Method) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		ctx = context.WithValue(ctx, ctxReqKey, req)
@@ -73,6 +77,18 @@ func handleCall(handler any, method reflect.Method) http.HandlerFunc {
 		outParam := reflect.New(outParamType.Elem())
 
 		ctxValue := reflect.ValueOf(ctx)
+
+		for _, mw := range s.middlewares {
+			err := mw(ctx, inParam, outParam)
+			if err != nil {
+				if errors.Is(ErrEndOfChain, err) {
+					return
+				}
+				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+		}
 
 		outValues := method.Func.Call([]reflect.Value{reflect.ValueOf(handler), ctxValue, inParam, outParam})
 
@@ -123,7 +139,7 @@ func (s *Server) registerAHandler(h any) {
 		route := fmt.Sprintf("/%s/%s", name, strings.ToLower(method.Name))
 		s.routes = append(s.routes, route)
 
-		s.router.HandleFunc(route, handleCall(h, method))
+		s.router.HandleFunc(route, handleCall(s, h, method))
 	}
 
 }
@@ -153,6 +169,10 @@ func (s *Server) RegisterAs(handler any, hName string) error {
 
 func (s *Server) Routes() []string {
 	return s.routes
+}
+
+func (s *Server) AddMiddleware(fn func(ctx context.Context, in any, out any) error) {
+	s.middlewares = append(s.middlewares, fn)
 }
 
 func New() *Server {
