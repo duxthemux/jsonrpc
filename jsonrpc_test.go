@@ -41,6 +41,20 @@ func (t *TestHandler) TestMethod(_ context.Context, in *TestIn, out *TestOut) er
 func TestServer_Call(t *testing.T) {
 	server := jsonrpc.New()
 
+	mwCount := 0
+
+	server.AddMiddleware(func(mw jsonrpc.HandleFn) jsonrpc.HandleFn {
+		return func(ctx context.Context, in any, out any) error {
+			mwCount++
+			nin, ok := in.(*TestIn)
+			if !ok {
+				return fmt.Errorf("wrong type")
+			}
+			nin.A = 10
+			return mw(ctx, in, out)
+		}
+	})
+
 	err := server.Register(&TestHandler{})
 	assert.NoError(t, err)
 
@@ -57,7 +71,8 @@ func TestServer_Call(t *testing.T) {
 
 	err = cli.Call("namedtesthandler", "testmethod", in, out)
 	assert.NoError(t, err)
-	assert.Equal(t, 7, out.Res)
+	assert.Equal(t, 14, out.Res)
+	assert.Equal(t, 1, mwCount)
 }
 
 func TestServer_CallWError(t *testing.T) {
