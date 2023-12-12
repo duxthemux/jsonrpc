@@ -238,7 +238,8 @@ func (c *Client) Call(handler string, method string, in any, out any) error {
 		return err
 	}
 	if res.StatusCode > 399 {
-		return fmt.Errorf("http error %v: %s", res.StatusCode, res.Status)
+		bs, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("http error %s: %s", res.Status, string(bs))
 	}
 
 	if err = json.NewDecoder(res.Body).Decode(out); err != nil {
